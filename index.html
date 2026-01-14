@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Three.js Store Journey</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #1a1a1a;
+    }
+
+    #app {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #reference-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.5;
+    }
+
+    #reference-overlay img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    #reference-overlay.hidden {
+      display: none;
+    }
+
+    #ui-container {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .toggle-btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.95);
+      color: #004F9A;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      transition: all 0.2s ease;
+    }
+    
+    .toggle-btn:hover {
+      background: #004F9A;
+      color: white;
+    }
+    
+    .toggle-btn.active {
+      background: #004F9A;
+      color: white;
+    }
+    
+    select.toggle-btn {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23004F9A' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 28px;
+      cursor: pointer;
+    }
+    
+    select.toggle-btn:hover {
+      background-color: #004F9A;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='white' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  
+  <!-- Reference image overlay (toggle with R key) -->
+  <div id="reference-overlay" class="hidden">
+    <img src="assets/Start.png" alt="Reference overlay">
+  </div>
+  
+  <!-- UI container for toggles -->
+  <div id="ui-container">
+    <button id="toggle-labels" class="toggle-btn active">Labels</button>
+    <button id="toggle-pins" class="toggle-btn active">Pins</button>
+    <select id="path-selector" class="toggle-btn">
+      <option value="none">Path: Off</option>
+      <option value="path1">Path 1</option>
+      <option value="path2">Path 2</option>
+    </select>
+    <button id="toggle-compass" class="toggle-btn active">🧭 North-up</button>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "gsap": "https://unpkg.com/gsap@3.12.4/index.js"
+      }
+    }
+  </script>
+  
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
