@@ -147,11 +147,20 @@ async function loadAllAssets() {
         tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
       }
       console.log('Wordmark loaded:', tex ? 'OK' : 'FAILED');
+    }),
+    loadSvgAsTexture('assets/Heart.svg', 512, 442).then(tex => {
+      assets.heartTexture = tex;
+      if (tex) {
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      }
+      console.log('Heart loaded:', tex ? 'OK' : 'FAILED');
     })
   ];
   
   // Load item images for pins
-  const pinLabels = ['A1', 'C4', 'C10', 'F7', 'G4', 'H20', 'I9'];
+  const pinLabels = ['M1', 'C4', 'C10', 'N8', 'F7', 'G4', 'H20', 'I9'];
   const itemPromises = pinLabels.map(label => {
     return new Promise((resolve) => {
       textureLoader.load(`assets/items/${label}.png`, (tex) => {
@@ -200,6 +209,16 @@ loadAllAssets().then(() => {
   
   // Setup toggle buttons
   setupToggleButtons();
+  
+  // Hide pins and path by default
+  if (scene.togglePins) {
+    scene.togglePins(false);
+    const pinsBtn = document.getElementById('toggle-pins');
+    if (pinsBtn) pinsBtn.classList.remove('active');
+  }
+  setPathVisible(false);
+  const pathSelector = document.getElementById('path-selector');
+  if (pathSelector) pathSelector.value = 'none';
   
   console.log('Scene initialized - Press SPACE to start animation');
 });
@@ -262,6 +281,32 @@ function setupToggleButtons() {
       updateCompassButtonText();
     });
   }
+  
+  // Heart N8 toggle
+  const heartN8Btn = document.getElementById('toggle-heart-n8');
+  if (heartN8Btn) {
+    heartN8Btn.addEventListener('click', () => {
+      if (scene.toggleHeartN8) {
+        const isHearted = scene.toggleHeartN8();
+        heartN8Btn.classList.toggle('active', isHearted);
+        heartN8Btn.textContent = isHearted ? '♥ N8' : '♡ N8';
+      }
+    });
+    
+    // Auto-heart N8 after 5 seconds (show even if pins hidden)
+    setTimeout(() => {
+      if (scene.toggleHeartN8 && !scene.isN8Hearted()) {
+        const isHearted = scene.toggleHeartN8();
+        heartN8Btn.classList.toggle('active', isHearted);
+        heartN8Btn.textContent = isHearted ? '♥ N8' : '♡ N8';
+        
+        // Make heart visible even if pins group is hidden
+        if (scene.showHeartOnly) {
+          scene.showHeartOnly();
+        }
+      }
+    }, 5000);
+  }
 }
 
 // ============================================
@@ -293,8 +338,35 @@ document.addEventListener('keydown', (event) => {
       // Disable orbit controls during animation
       controls.enabled = false;
       animationStarted = true;
-      startFullAnimation();
-      console.log('Animation started!');
+      
+      // Sequence: reveal pins -> reveal path -> start animation
+      // 1. Reveal pins with spring animation
+      if (scene.togglePins) {
+        scene.togglePins(true);
+        const pinsBtn = document.getElementById('toggle-pins');
+        if (pinsBtn) pinsBtn.classList.add('active');
+      }
+      
+      // 2. After pins animate, reveal path
+      setTimeout(() => {
+        setPathVisible(true);
+        const pathSelector = document.getElementById('path-selector');
+        if (pathSelector) pathSelector.value = 'path3';
+        
+        // 3. After path draws, start animation
+        setTimeout(() => {
+          startFullAnimation();
+          
+          // Update compass button to show Follow mode
+          const compassBtn = document.getElementById('toggle-compass');
+          if (compassBtn) {
+            compassBtn.textContent = '📍 Follow';
+            compassBtn.classList.remove('active');
+          }
+          
+          console.log('Animation started!');
+        }, 1600); // Wait for path draw animation
+      }, 500); // Wait for pins to spring up
     }
   }
   

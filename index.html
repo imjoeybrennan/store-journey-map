@@ -88,6 +88,15 @@
       color: white;
     }
     
+    #toggle-heart-n8.active {
+      background: #C40808;
+      color: white;
+    }
+    
+    #toggle-heart-n8:hover {
+      background: #EE3E23;
+    }
+    
     select.toggle-btn {
       appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23004F9A' d='M6 8L2 4h8z'/%3E%3C/svg%3E");
@@ -115,13 +124,15 @@
   <!-- UI container for toggles -->
   <div id="ui-container">
     <button id="toggle-labels" class="toggle-btn active">Labels</button>
-    <button id="toggle-pins" class="toggle-btn active">Pins</button>
+    <button id="toggle-pins" class="toggle-btn">Pins</button>
     <select id="path-selector" class="toggle-btn">
       <option value="none">Path: Off</option>
       <option value="path1">Path 1</option>
       <option value="path2">Path 2</option>
+      <option value="path3">Path 3</option>
     </select>
     <button id="toggle-compass" class="toggle-btn active">🧭 North-up</button>
+    <button id="toggle-heart-n8" class="toggle-btn">♥ N8</button>
   </div>
 
   <script type="importmap">

@@ -200,6 +200,111 @@ function createPinTexture(label, isDone = false) {
 }
 
 // ============================================
+// Helper: Create heart pin texture (normal or done/checked state)
+// ============================================
+function createHeartTexture(heartTexture, isDone = false) {
+  const canvas = document.createElement('canvas');
+  const size = 512;
+  canvas.width = size;
+  canvas.height = size * 1.15;
+  const ctx = canvas.getContext('2d');
+  
+  // Draw heart from texture if available
+  const heartWidth = 420;
+  const heartHeight = heartWidth * (101 / 117); // Maintain aspect ratio
+  const heartX = (size - heartWidth) / 2;
+  const heartY = 20;
+  const heartBottom = heartY + heartHeight;
+  
+  // Draw bottom shadow ellipse - positioned to barely intersect with heart's point
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+  ctx.beginPath();
+  ctx.ellipse(size / 2, heartBottom - 8, 50, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw heart on top
+  if (heartTexture && heartTexture.image) {
+    // Add drop shadow behind heart
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 25;
+    ctx.shadowOffsetX = 8;
+    ctx.shadowOffsetY = 12;
+    
+    if (isDone) {
+      // Draw green tinted heart for done state
+      ctx.filter = 'hue-rotate(100deg) saturate(1.2)';
+    }
+    
+    ctx.drawImage(heartTexture.image, heartX, heartY, heartWidth, heartHeight);
+    
+    // Reset filter and shadow
+    ctx.filter = 'none';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Draw checkmark if done
+    if (isDone) {
+      const cx = size / 2;
+      const cy = heartY + heartHeight * 0.4;
+      
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 18;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx - 60, cy);
+      ctx.lineTo(cx - 15, cy + 45);
+      ctx.lineTo(cx + 70, cy - 45);
+      ctx.stroke();
+    }
+  }
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  
+  return { texture, width: canvas.width, height: canvas.height };
+}
+
+// ============================================
+// Helper: Create heart pin (for favorited items)
+// ============================================
+function createHeartPin(pinSize = 3, heartTexture = null) {
+  const group = new THREE.Group();
+  group.userData.isBillboard = true;
+  group.userData.isHeart = true;
+  group.userData.isDone = false;
+  
+  // Create normal and done textures
+  const normalTex = createHeartTexture(heartTexture, false);
+  const doneTex = createHeartTexture(heartTexture, true);
+  
+  // Maintain proper aspect ratio based on canvas dimensions
+  const aspect = normalTex.width / normalTex.height;
+  const geometry = new THREE.PlaneGeometry(pinSize * aspect, pinSize);
+  const material = new THREE.MeshBasicMaterial({
+    map: normalTex.texture,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    toneMapped: false,
+  });
+  
+  const pinMesh = new THREE.Mesh(geometry, material);
+  pinMesh.renderOrder = 100;
+  pinMesh.userData.normalTexture = normalTex.texture;
+  pinMesh.userData.doneTexture = doneTex.texture;
+  group.add(pinMesh);
+  group.userData.pinMesh = pinMesh;
+  
+  return group;
+}
+
+// ============================================
 // Helper: Create pin component with shadow and text
 // ============================================
 function createPin(label, pinSize = 3, itemTexture = null, gsapRef = null) {
@@ -253,7 +358,7 @@ function createPin(label, pinSize = 3, itemTexture = null, gsapRef = null) {
     itemCanvasTexture.colorSpace = THREE.SRGBColorSpace;
     itemCanvasTexture.needsUpdate = true;
     
-    const itemGeometry = new THREE.PlaneGeometry(pinSize * 0.65, pinSize * 0.65);
+    const itemGeometry = new THREE.PlaneGeometry(pinSize * 0.75, pinSize * 0.75);
     const itemMaterial = new THREE.MeshBasicMaterial({
       map: itemCanvasTexture,
       transparent: true,
@@ -807,20 +912,20 @@ export function createStoreScene(scene, assets) {
   shelfMap['K'] = klShelves; shelfMap['L'] = klShelves;
   
   // ============================================
-  // LEFT SIDE: Pallet bins
+  // LEFT SIDE: Pallet bins (Deli)
   // ============================================
   const leftBinX = -STORE_WIDTH / 2 + 5;
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 2; col++) {
       const bin = createShelfBlock(2.5, 2.5, BIN_HEIGHT, BIN_COLOR);
-      bin.position.set(leftBinX + col * 3, 0, 4 + row * 3.5);
+      bin.position.set(leftBinX + col * 3, 0, 8 + row * 3.5);
       worldGroup.add(bin);
     }
   }
   
-  // Left side vertical shelf
+  // Left side vertical shelf (Dairy)
   const leftVertShelf = createShelfBlock(2.5, 8, AISLE_SHELF_HEIGHT);
-  leftVertShelf.position.set(-STORE_WIDTH / 2 + 5, 0, -6);
+  leftVertShelf.position.set(-STORE_WIDTH / 2 + 5, 0, 1);
   worldGroup.add(leftVertShelf);
   
   // RIGHT SIDE: (horizontal shelves removed)
@@ -911,15 +1016,47 @@ export function createStoreScene(scene, assets) {
     { x: 14, z: 21 },       // Exit
   ];
   
+  // Path 3: Start inside store facing West, go through Home aisle,
+  // turn left after C10, around Snacks, across back, down Shoes/Seasonal aisle
+  const path3Waypoints = [
+    // 1. Start inside store pointing West
+    { x: -4, z: 16 },       // Start position inside store
+    
+    // Turn 1: Go West toward B-C aisle
+    { x: -17, z: 16 },      // Turn 1 (90°) - turn North
+    
+    // Turn 2: Go North (up) through B-C aisle
+    { x: -17, z: -5 },      // Turn 2 (90°) - turn West toward Dairy
+    
+    // Turn 3: Go West above Dairy
+    { x: -30, z: -5 },      // Turn 3 (90°) - turn North
+    
+    // Turn 4: Go North past Snacks (moved up 0.5)
+    { x: -30, z: -16.5 },   // Turn 4 (90°) - turn East
+    
+    // Turn 5: Go East along back (moved up 0.5)
+    { x: 2, z: -16.5 },     // Turn 5 (90°) - turn South
+    
+    // Turn 6: Go South past Kid's Clothing
+    { x: 2, z: -5 },        // Turn 6 (90°) - turn East
+    
+    // Turn 7: Go East to Shoes/Seasonal aisle
+    { x: 19, z: -5 },       // Turn 7 (90°) - turn South
+    
+    // End: Go South down Shoes/Seasonal aisle
+    { x: 19, z: 18 },       // Stop just before Vision Center
+  ];
+  
   // Store all path definitions
   const pathDefinitions = {
     path1: path1Waypoints,
-    path2: path2Waypoints
+    path2: path2Waypoints,
+    path3: path3Waypoints
   };
   
-  // Create default path curve (Path 1)
-  let currentPathId = 'path1';
-  let pathCurve = createRoundedPath(path1Waypoints, 3.0);
+  // Create default path curve (Path 3)
+  let currentPathId = 'path3';
+  let pathCurve = createRoundedPath(path3Waypoints, 3.0);
   
   // Helper function to create ribbon geometry from a path curve
   function createRibbonGeometry(curve) {
@@ -1054,6 +1191,8 @@ export function createStoreScene(scene, assets) {
   const shopper = createShopperMarker();
   const startPoint = pathCurve.getPoint(0);
   shopper.position.set(startPoint.x, 0, startPoint.z);
+  // Set initial rotation to face West (for Path 3 starting direction)
+  shopper.rotation.y = Math.PI / 2;
   worldGroup.add(shopper);
   
   // ============================================
@@ -1065,37 +1204,37 @@ export function createStoreScene(scene, assets) {
   // Section label data: { text, x, z, rotate } - rotate = true for 90 degree rotation
   const sectionLabels = [
     // Row 1: Back wall shelves - down 2 units
-    { text: 'Cleaning Supplies', x: -20, z: -19 },
-    { text: 'Bikes', x: 0, z: -19 },
+    { text: 'Produce', x: -20, z: -19 },
+    { text: 'Electronics', x: 0, z: -19 },
     { text: 'Hardware', x: 18, z: -19 },
     
     // Row 2: Bins row - down 2 units
-    { text: 'Snacks &\nBeverages', x: -22, z: -13, fontSize: 0.9 },
-    { text: 'Frozen Food', x: -11.5, z: -13 },
-    { text: "Kid's Clothing", x: 10.5, z: -13 },
-    { text: 'Office', x: 24, z: -13 },
+    { text: 'Snacks &\nBeverages', x: -22, z: -12, fontSize: 0.9 },
+    { text: 'Frozen Food', x: -11.5, z: -12 },
+    { text: "Kid's Clothing", x: 10.5, z: -12 },
+    { text: 'Office', x: 24, z: -12 },
     
-    // Row 3: Dairy (left wall, rotated) - down 1
-    { text: 'Dairy', x: -28, z: -6, rotate: true },
+    // Row 3: Dairy (left wall, rotated)
+    { text: 'Dairy', x: -28.5, z: 1, rotate: true },
     
     // Row 4: Deli
-    { text: 'Deli', x: -27, z: 8 },
+    { text: 'Deli', x: -27, z: 12 },
     
     // Row 5: Center bins - Men's left 1
-    { text: "Men's\nClothing", x: 0, z: 4, fontSize: 0.9 },
-    { text: "Ladies'\nClothing", x: 8, z: 4, fontSize: 0.9 },
+    { text: "Men's\nClothing", x: -0.5, z: 5, fontSize: 0.9 },
+    { text: "Ladies'\nClothing", x: 7.5, z: 5, fontSize: 0.9 },
     
     // Aisle shelf pairs (rotated 90°)
     { text: 'Dry Grocery', x: -20, z: 5, rotate: true },
     { text: 'Home', x: -14, z: 5, rotate: true },
-    { text: 'Electronics', x: -8, z: 5, rotate: true },
+    { text: 'Bikes', x: -8, z: 5, rotate: true },
     { text: 'Shoes', x: 16, z: 5, rotate: true },
     { text: 'Seasonal', x: 22, z: 5, rotate: true },
     { text: 'Health & Beauty', x: 28, z: 5, rotate: true },
     
     // Row 6: Bottom entrance area
-    { text: 'Produce', x: -18, z: 20 },
-    { text: 'Checkout', x: 18, z: 20 },
+    { text: 'Checkout', x: -18, z: 19 },
+    { text: 'Vision Center', x: 18, z: 19 },
   ];
   
   sectionLabels.forEach(({ text, x, z, rotate, fontSize }) => {
@@ -1118,10 +1257,11 @@ export function createStoreScene(scene, assets) {
   // Pin data: { label, x, z, y, hidden, revealAfter }
   // hidden = start hidden (scale 0), revealAfter = which pin triggers reveal
   const pinsData = [
-    { label: 'A1', x: -16, z: 17, y: BIN_HEIGHT + 1 },
+    { label: 'M1', x: -24, z: -19, y: AISLE_SHELF_HEIGHT + 1.5 },  // Produce section back left
     { label: 'C4', x: -15, z: 9, y: BIN_HEIGHT + 1 },  // 8 units above A1, 1 unit right
-    { label: 'C10', x: -14, z: -1, y: AISLE_SHELF_HEIGHT + 1, hidden: true, revealAfterDelay: 3000 },
-    { label: 'F7', x: -7, z: -12, y: BIN_HEIGHT + 1, hidden: true, revealAfter: 'C10' },
+    { label: 'C10', x: -14, z: -1, y: AISLE_SHELF_HEIGHT + 1 },
+    { label: 'N8', x: -5, z: -19, y: AISLE_SHELF_HEIGHT + 1 },  // Electronics section
+    { label: 'F7', x: -9, z: -13.5, y: BIN_HEIGHT + 1 },
     { label: 'G4', x: 12, z: -12, y: BIN_HEIGHT + 1 },  // Kid's Clothing area
     { label: 'H20', x: 17, z: 9, y: AISLE_SHELF_HEIGHT + 1 },  // Above H shelf
     { label: 'I9', x: 21, z: 3, y: AISLE_SHELF_HEIGHT + 1 },
@@ -1185,7 +1325,100 @@ export function createStoreScene(scene, assets) {
   };
   
   scene.togglePins = (visible) => {
-    pinsGroup.visible = visible;
+    if (visible) {
+      pinsGroup.visible = true;
+      // Animate each pin with a spring scale (except heart which may already be showing)
+      let animIndex = 0;
+      pinsGroup.children.forEach((pin) => {
+        // Skip the heart pin if it's already visible and scaled
+        if (pin.userData.isHeart && pin.visible && pin.scale.x > 0.9) {
+          return;
+        }
+        
+        // Make regular pins visible (they may have been hidden by showHeartOnly)
+        pin.visible = true;
+        
+        if (assets.gsap) {
+          pin.scale.set(0, 0, 0);
+          assets.gsap.to(pin.scale, {
+            x: 1, y: 1, z: 1,
+            duration: 0.5,
+            delay: animIndex * 0.05, // Stagger the animations
+            ease: 'elastic.out(1, 0.5)'
+          });
+          animIndex++;
+        }
+      });
+      
+      // Hide the original N8 pin if heart is showing
+      if (n8IsHearted && pinsMap['N8']) {
+        pinsMap['N8'].visible = false;
+      }
+    } else {
+      pinsGroup.visible = false;
+    }
+  };
+  
+  // ============================================
+  // Heart Pin Toggle for N8
+  // ============================================
+  let n8HeartPin = null;
+  let n8IsHearted = false;
+  
+  scene.toggleHeartN8 = () => {
+    const n8Pin = pinsMap['N8'];
+    if (!n8Pin) return false;
+    
+    n8IsHearted = !n8IsHearted;
+    
+    if (n8IsHearted) {
+      // Hide regular pin, show heart pin
+      n8Pin.visible = false;
+      
+      if (!n8HeartPin) {
+        // Create heart pin at same position using loaded Heart.svg
+        n8HeartPin = createHeartPin(5, assets.heartTexture);
+        n8HeartPin.position.copy(n8Pin.position);
+        n8HeartPin.position.z += 1; // Move down 1 unit
+        n8HeartPin.userData.worldX = n8Pin.userData.worldX;
+        n8HeartPin.userData.worldZ = n8Pin.userData.worldZ;
+        pinsGroup.add(n8HeartPin);
+      }
+      n8HeartPin.visible = true;
+      
+      // Bounce animation when hearted
+      if (assets.gsap) {
+        n8HeartPin.scale.set(0.5, 0.5, 0.5);
+        assets.gsap.to(n8HeartPin.scale, {
+          x: 1, y: 1, z: 1,
+          duration: 0.6,
+          ease: 'elastic.out(1, 0.4)'
+        });
+      }
+    } else {
+      // Show regular pin, hide heart pin
+      n8Pin.visible = true;
+      if (n8HeartPin) {
+        n8HeartPin.visible = false;
+      }
+    }
+    
+    return n8IsHearted;
+  };
+  
+  scene.isN8Hearted = () => n8IsHearted;
+  
+  // Show just the heart pin even if pins group is hidden
+  scene.showHeartOnly = () => {
+    if (n8HeartPin) {
+      // Temporarily make pins group visible but hide all pins except heart
+      pinsGroup.visible = true;
+      pinsGroup.children.forEach(pin => {
+        if (pin !== n8HeartPin) {
+          pin.visible = false;
+        }
+      });
+    }
   };
   
   // ============================================

@@ -39,10 +39,10 @@ let animatorState = {
 
 // Camera settings for different views
 const CAMERA_VIEWS = {
-  // Top-down orthographic zenith view (1.5x zoomed out, top-aligned)
+  // Top-down orthographic zenith view (zoomed in 25%, centered)
   zenith: {
-    position: { x: 0, y: 120, z: 15 },
-    target: { x: 0, y: 0, z: 15 },
+    position: { x: 0, y: 90, z: 0 },
+    target: { x: 0, y: 0, z: 0 },
     fov: 45,
   },
   // 45-degree isometric follow view (1.5x from original)
@@ -131,7 +131,8 @@ export function updateAnimator() {
     
     // Smoothly interpolate world rotation, taking the shortest path
     // This prevents 360° spins when crossing the ±π boundary
-    const rotationLerpFactor = 0.08;
+    // Slower factor (0.027) for seamless transition after zenith to 45° change
+    const rotationLerpFactor = 0.027;
     let delta = animatorState.targetWorldRotation - animatorState.worldRotation;
     
     // Normalize delta to [-π, π] to always take the shortest rotation path
@@ -275,16 +276,16 @@ export function playIntroTransition(onComplete) {
   console.log('Playing intro transition...');
   
   // Store start and end camera states
-  // Start: top-aligned (shifted south by 15 units)
-  const startCamPos = { x: 0, y: 120, z: 15 };
+  // Start: centered, zoomed in 25%
+  const startCamPos = { x: 0, y: 90, z: 0 };
   const endCamPos = { 
     x: startPoint.x, 
     y: CAMERA_VIEWS.isometric.offsetY, 
     z: startPoint.z + CAMERA_VIEWS.isometric.offsetZ 
   };
   
-  // Start lookAt shifted to match top-aligned view, end centered on marker
-  const startLookAt = { x: 0, y: 0, z: 15 };
+  // Start lookAt centered, end centered on marker
+  const startLookAt = { x: 0, y: 0, z: 0 };
   const endLookAt = { x: startPoint.x, y: 0, z: startPoint.z };
   
   // Animation progress object
@@ -296,7 +297,18 @@ export function playIntroTransition(onComplete) {
       animatorState.introComplete = true;
       animatorState.followingMarker = true;
       animatorState.cameraOffset.set(0, CAMERA_VIEWS.isometric.offsetY, CAMERA_VIEWS.isometric.offsetZ);
-      animatorState.cameraTarget.set(startPoint.x, 0, startPoint.z);
+      
+      // Set camera target to marker's current world position for seamless handoff
+      const markerWorldPos = new THREE.Vector3();
+      animatorState.shopper.getWorldPosition(markerWorldPos);
+      animatorState.cameraTarget.set(markerWorldPos.x, 0, markerWorldPos.z);
+      
+      // Also set camera position to match exactly where it should be
+      camera.position.x = markerWorldPos.x + animatorState.cameraOffset.x;
+      camera.position.y = animatorState.cameraOffset.y;
+      camera.position.z = markerWorldPos.z + animatorState.cameraOffset.z;
+      camera.lookAt(markerWorldPos.x, 0, markerWorldPos.z);
+      
       console.log('Intro transition complete');
       if (onComplete) onComplete();
     }
@@ -306,22 +318,43 @@ export function playIntroTransition(onComplete) {
   introTimeline.to({}, { duration: 0.5 });
   
   // Phase 2: Smooth transition using single progress value (2.5s)
+  // Also transition from North-up to Follow mode
   introTimeline.to(anim, {
     progress: 1,
     duration: 2.5,
     ease: 'power2.inOut',
+    onStart: () => {
+      // Start transitioning to Follow mode (world will smoothly rotate)
+      animatorState.compassMode = false;
+    },
     onUpdate: () => {
       const t = anim.progress;
       
+      // Get marker's current world position (accounts for world rotation in Follow mode)
+      const markerWorldPos = new THREE.Vector3();
+      animatorState.shopper.getWorldPosition(markerWorldPos);
+      
+      // Interpolate end position to marker's world position for smooth tracking
+      const currentEndPos = {
+        x: markerWorldPos.x,
+        y: CAMERA_VIEWS.isometric.offsetY,
+        z: markerWorldPos.z + CAMERA_VIEWS.isometric.offsetZ
+      };
+      const currentEndLookAt = {
+        x: markerWorldPos.x,
+        y: 0,
+        z: markerWorldPos.z
+      };
+      
       // Interpolate camera position
-      camera.position.x = startCamPos.x + (endCamPos.x - startCamPos.x) * t;
-      camera.position.y = startCamPos.y + (endCamPos.y - startCamPos.y) * t;
-      camera.position.z = startCamPos.z + (endCamPos.z - startCamPos.z) * t;
+      camera.position.x = startCamPos.x + (currentEndPos.x - startCamPos.x) * t;
+      camera.position.y = startCamPos.y + (currentEndPos.y - startCamPos.y) * t;
+      camera.position.z = startCamPos.z + (currentEndPos.z - startCamPos.z) * t;
       
       // Interpolate look-at target
-      const lookX = startLookAt.x + (endLookAt.x - startLookAt.x) * t;
-      const lookY = startLookAt.y + (endLookAt.y - startLookAt.y) * t;
-      const lookZ = startLookAt.z + (endLookAt.z - startLookAt.z) * t;
+      const lookX = startLookAt.x + (currentEndLookAt.x - startLookAt.x) * t;
+      const lookY = startLookAt.y + (currentEndLookAt.y - startLookAt.y) * t;
+      const lookZ = startLookAt.z + (currentEndLookAt.z - startLookAt.z) * t;
       
       // Apply lookAt with consistent up vector to prevent Z rotation
       camera.up.set(0, 1, 0);
@@ -343,8 +376,8 @@ export function setCameraToZenith() {
   // Set up vector first to ensure consistent orientation
   camera.up.set(0, 0, -1); // For top-down, "up" is toward -Z (back of store)
   
-  camera.position.set(0, 120, 15); // Top-aligned (shifted south)
-  camera.lookAt(0, 0, 15);
+  camera.position.set(0, 90, 0); // Centered, zoomed in 25%
+  camera.lookAt(0, 0, 0);
   
   // Now reset up vector for the transition
   camera.up.set(0, 1, 0);
@@ -379,6 +412,7 @@ export function startFullAnimation() {
 /**
  * Start the shopper journey animation
  * Uses linear motion with ease-out at start and ease-in at end
+ * Duration scales with path length for consistent speed
  */
 export function playJourney() {
   if (!animatorState.pathCurve || !animatorState.shopper || !animatorState.gsap) {
@@ -393,8 +427,13 @@ export function playJourney() {
   animatorState.isPlaying = true;
   console.log('Journey started');
   
-  const totalDuration = 20; // Total journey time in seconds
-  const easeDuration = 1.5; // Duration of ease sections
+  // Calculate path length and scale duration for consistent speed
+  const pathLength = animatorState.pathCurve.getLength();
+  const baseSpeed = 2.5; // Units per second (slower pace)
+  const totalDuration = pathLength / baseSpeed;
+  const easeDuration = Math.min(1.5, totalDuration * 0.05); // Scale ease with duration
+  
+  console.log('Path length:', pathLength.toFixed(1), 'Duration:', totalDuration.toFixed(1) + 's');
   
   animatorState.timeline = animatorState.gsap.timeline({
     onComplete: () => {
@@ -464,6 +503,7 @@ export function resetJourney() {
   animatorState.progress = 0;
   animatorState.introComplete = false;
   animatorState.followingMarker = false;
+  animatorState.compassMode = true; // Reset to North-up
   
   // Reset world rotation
   animatorState.worldRotation = 0;
