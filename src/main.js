@@ -20,7 +20,8 @@ import {
   getCompassMode,
   setPathVisible,
   getPathVisible,
-  switchPath
+  switchPath,
+  playPinchZoomSequence
 } from './animator.js';
 import { createUI } from './ui.js';
 
@@ -31,7 +32,7 @@ const container = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setClearColor(0xFAF7F2); // Very light warm beige background
+renderer.setClearColor(0xFAF9F6); // Near white cream (Apple Maps style)
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NoToneMapping; // Ensure no color modification
@@ -115,6 +116,14 @@ function loadSvgAsTexture(url, width, height) {
 const textureLoader = new THREE.TextureLoader();
 
 async function loadAllAssets() {
+  // Preload Gibson font before creating any canvas textures
+  try {
+    await document.fonts.load('16px "Gibson"');
+    console.log('Gibson font loaded');
+  } catch (e) {
+    console.warn('Font preload failed:', e);
+  }
+  
   // Load PNG textures
   const pngPromises = [
     new Promise((resolve) => {
@@ -156,11 +165,27 @@ async function loadAllAssets() {
         tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
       }
       console.log('Heart loaded:', tex ? 'OK' : 'FAILED');
+    }),
+    loadSvgAsTexture('assets/pink-heart.svg', 128, 128).then(tex => {
+      assets.pinkHeartTexture = tex;
+      if (tex) {
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+      }
+      console.log('Pink heart loaded:', tex ? 'OK' : 'FAILED');
+    }),
+    loadSvgAsTexture('assets/red-heart.svg', 128, 128).then(tex => {
+      assets.redHeartTexture = tex;
+      if (tex) {
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+      }
+      console.log('Red heart loaded:', tex ? 'OK' : 'FAILED');
     })
   ];
   
   // Load item images for pins
-  const pinLabels = ['M1', 'C4', 'C10', 'N8', 'F7', 'G4', 'H20', 'I9'];
+  const pinLabels = ['M1', 'B4', 'I18', 'C10', 'N8', 'F7', 'F8', 'G4', 'H20', 'I9', 'I1', 'K9', 'Q16', 'G12', 'A17', 'A26'];
   const itemPromises = pinLabels.map(label => {
     return new Promise((resolve) => {
       textureLoader.load(`assets/items/${label}.png`, (tex) => {
@@ -307,6 +332,16 @@ function setupToggleButtons() {
       }
     }, 5000);
   }
+  
+  // Pinch zoom button
+  const pinchZoomBtn = document.getElementById('pinch-zoom-btn');
+  if (pinchZoomBtn) {
+    pinchZoomBtn.addEventListener('click', () => {
+      if (scene.getPinsMap) {
+        playPinchZoomSequence(scene.getPinsMap());
+      }
+    });
+  }
 }
 
 // ============================================
@@ -339,7 +374,22 @@ document.addEventListener('keydown', (event) => {
       controls.enabled = false;
       animationStarted = true;
       
-      // Sequence: reveal pins -> reveal path -> start animation
+      // Sequence: unheart N8 -> reveal pins -> reveal path -> start animation
+      
+      // 0. Unheart N8 if hearted (swap back to regular pin with bounce)
+      if (scene.isN8Hearted && scene.isN8Hearted()) {
+        scene.toggleHeartN8();
+        const heartN8Btn = document.getElementById('toggle-heart-n8');
+        if (heartN8Btn) {
+          heartN8Btn.classList.remove('active');
+          heartN8Btn.textContent = '♡ N8';
+        }
+        // Bounce the N8 pin
+        if (scene.bounceN8Pin) {
+          scene.bounceN8Pin();
+        }
+      }
+      
       // 1. Reveal pins with spring animation
       if (scene.togglePins) {
         scene.togglePins(true);

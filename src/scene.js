@@ -20,11 +20,11 @@ const WALL_HEIGHT = 5;
 const AISLE_SHELF_HEIGHT = 2.8;
 const BIN_HEIGHT = 1.6;
 
-// Colors matching 3D Map Style Reference.png (lighter)
-const FLOOR_COLOR = 0xEEEBE6;      // 5% darker than background (#FAF7F2)
-const WALL_COLOR = 0xFAF8F5;       // Almost white cream walls
-const SHELF_COLOR = 0x7AABD1;      // Medium blue shelves
-const BIN_COLOR = 0x7AABD1;        // Medium blue bins (same as shelves)
+// Colors matching Apple Maps subtle warm gray tones (halved darkness)
+const FLOOR_COLOR = 0xF5F3EE;      // Very light cream (Apple Maps ground)
+const WALL_COLOR = 0xFDFCFB;       // Near white (halved darkness)
+const SHELF_COLOR = 0xF2F1EF;      // Very light warm gray (halved darkness)
+const BIN_COLOR = 0xF2F1EF;        // Same as shelves
 
 // ============================================
 // Helper: Create text texture for shelf labels
@@ -39,7 +39,7 @@ function createLabelTexture(letter, size = 128) {
   ctx.fillRect(0, 0, size, size);
   
   ctx.fillStyle = SAMS_BLUE_HEX;
-  ctx.font = `bold ${size * 0.55}px Arial, sans-serif`;
+  ctx.font = `bold ${size * 0.55}px "Gibson", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(letter, size / 2, size / 2);
@@ -51,7 +51,7 @@ function createLabelTexture(letter, size = 128) {
 }
 
 // ============================================
-// Helper: Create section label with text shadow (floating above geometry)
+// Helper: Create section label with white outline (floating above geometry)
 // ============================================
 function createSectionLabel(text, fontSize = 1.5) {
   const canvas = document.createElement('canvas');
@@ -64,7 +64,7 @@ function createSectionLabel(text, fontSize = 1.5) {
   
   // Measure text
   const tempCtx = canvas.getContext('2d');
-  tempCtx.font = `bold ${fontSize * 40 * scale}px Arial, sans-serif`;
+  tempCtx.font = `${fontSize * 40 * scale}px "Gibson", sans-serif`;
   
   let maxWidth = 0;
   lines.forEach(line => {
@@ -76,7 +76,7 @@ function createSectionLabel(text, fontSize = 1.5) {
   canvas.height = lineHeight * lines.length + padding * scale;
   
   const ctx = canvas.getContext('2d');
-  ctx.font = `bold ${fontSize * 40 * scale}px Arial, sans-serif`;
+  ctx.font = `${fontSize * 40 * scale}px "Gibson", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   
@@ -84,12 +84,14 @@ function createSectionLabel(text, fontSize = 1.5) {
   lines.forEach((line, i) => {
     const y = (i + 0.5) * lineHeight + padding * scale / 2;
     
-    // Text shadow (dark, offset)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-    ctx.fillText(line, canvas.width / 2 + 3 * scale, y + 3 * scale);
+    // White outline (4px, drawn first)
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 4 * scale;
+    ctx.lineJoin = 'round';
+    ctx.strokeText(line, canvas.width / 2, y);
     
-    // Main text (white)
-    ctx.fillStyle = '#FFFFFF';
+    // Main text (darker grey)
+    ctx.fillStyle = '#888888';
     ctx.fillText(line, canvas.width / 2, y);
   });
   
@@ -153,8 +155,8 @@ function createPinTexture(label, isDone = false) {
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 0;
   
-  // Circle inside (blue or green)
-  ctx.fillStyle = isDone ? '#2A8703' : '#004F9A';
+  // Circle inside (dark blue or green)
+  ctx.fillStyle = isDone ? '#2A8703' : '#003362';  // Dark navy blue
   ctx.beginPath();
   ctx.arc(cx, circleY, circleRadius - 5, 0, Math.PI * 2);
   ctx.fill();
@@ -184,7 +186,7 @@ function createPinTexture(label, isDone = false) {
   } else {
     // Label text
     ctx.fillStyle = 'white';
-    ctx.font = `bold ${circleRadius * 0.7}px Arial, sans-serif`;
+    ctx.font = `bold ${circleRadius * 0.7}px "Gibson", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, cx, circleY);
@@ -271,6 +273,149 @@ function createHeartTexture(heartTexture, isDone = false) {
 }
 
 // ============================================
+// Helper: Create floating hearts aura effect for gift pins
+// Options: { maxHearts, spawnIntervalMin, spawnIntervalMax }
+// ============================================
+function createFloatingHeartsAura(parentGroup, gsapRef, heartTextureParam = null, options = {}) {
+  if (!gsapRef) return null;
+  
+  const {
+    maxHearts = 8,
+    spawnIntervalMin = 300,
+    spawnIntervalMax = 700
+  } = options;
+  
+  const heartsGroup = new THREE.Group();
+  heartsGroup.name = 'FloatingHearts';
+  parentGroup.add(heartsGroup);
+  
+  // Use provided heart texture or create fallback
+  let heartTexture = heartTextureParam;
+  if (!heartTexture) {
+    // Fallback: create simple pink heart texture
+    const canvas = document.createElement('canvas');
+    const size = 64;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const cx = size / 2;
+    const cy = size / 2;
+    const heartSize = size * 0.4;
+    ctx.fillStyle = '#e78bba';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + heartSize * 0.3);
+    ctx.bezierCurveTo(cx - heartSize, cy - heartSize * 0.3, cx - heartSize, cy - heartSize, cx, cy - heartSize * 0.5);
+    ctx.bezierCurveTo(cx + heartSize, cy - heartSize, cx + heartSize, cy - heartSize * 0.3, cx, cy + heartSize * 0.3);
+    ctx.fill();
+    heartTexture = new THREE.CanvasTexture(canvas);
+    heartTexture.colorSpace = THREE.SRGBColorSpace;
+    heartTexture.needsUpdate = true;
+  }
+  
+  const heartGeometry = new THREE.PlaneGeometry(1.5, 1.5);
+  
+  // Pool of heart meshes to reuse
+  const heartPool = [];
+  
+  for (let i = 0; i < maxHearts; i++) {
+    const material = new THREE.MeshBasicMaterial({
+      map: heartTexture,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      toneMapped: false,
+      opacity: 0
+    });
+    const heart = new THREE.Mesh(heartGeometry, material);
+    heart.renderOrder = 102;
+    heart.userData.active = false;
+    heartsGroup.add(heart);
+    heartPool.push(heart);
+  }
+  
+  let isAnimating = false;
+  let animationInterval = null;
+  
+  const spawnHeart = () => {
+    // Find an inactive heart
+    const heart = heartPool.find(h => !h.userData.active);
+    if (!heart) return;
+    
+    heart.userData.active = true;
+    
+    // Random starting position around the pin
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 0.3 + Math.random() * 0.4;
+    const startX = Math.cos(angle) * radius;
+    const startZ = Math.sin(angle) * radius;
+    const startY = 0.5 + Math.random() * 0.5;
+    
+    heart.position.set(startX, startY, startZ);
+    heart.scale.set(0.6 + Math.random() * 0.6, 0.6 + Math.random() * 0.6, 1);
+    heart.material.opacity = 0;
+    
+    // Float up and fade animation (shorter, limited to 2 units rise)
+    const duration = 1.2 + Math.random() * 0.8;
+    const floatHeight = 1.5 + Math.random() * 0.5;  // Max 2 units
+    const drift = (Math.random() - 0.5) * 1;
+    
+    gsapRef.timeline()
+      .to(heart.material, { opacity: 0.8, duration: 0.3, ease: 'power1.out' }, 0)
+      .to(heart.position, { 
+        y: startY + floatHeight, 
+        x: startX + drift,
+        duration: duration, 
+        ease: 'power1.out' 
+      }, 0)
+      .to(heart.scale, { 
+        x: heart.scale.x * 0.5, 
+        y: heart.scale.y * 0.5, 
+        duration: duration * 0.7,
+        delay: duration * 0.3,
+        ease: 'power1.in'
+      }, 0)
+      .to(heart.material, { 
+        opacity: 0, 
+        duration: duration * 0.4,
+        delay: duration * 0.6,
+        ease: 'power1.in',
+        onComplete: () => {
+          heart.userData.active = false;
+        }
+      }, 0);
+  };
+  
+  const startAnimation = () => {
+    if (isAnimating) return;
+    isAnimating = true;
+    
+    // Spawn hearts at random intervals
+    const spawn = () => {
+      if (!isAnimating) return;
+      spawnHeart();
+      const interval = spawnIntervalMin + Math.random() * (spawnIntervalMax - spawnIntervalMin);
+      animationInterval = setTimeout(spawn, interval);
+    };
+    spawn();
+  };
+  
+  const stopAnimation = () => {
+    isAnimating = false;
+    if (animationInterval) {
+      clearTimeout(animationInterval);
+      animationInterval = null;
+    }
+  };
+  
+  return {
+    group: heartsGroup,
+    start: startAnimation,
+    stop: stopAnimation,
+    isAnimating: () => isAnimating
+  };
+}
+
+// ============================================
 // Helper: Create heart pin (for favorited items)
 // ============================================
 function createHeartPin(pinSize = 3, heartTexture = null) {
@@ -305,9 +450,43 @@ function createHeartPin(pinSize = 3, heartTexture = null) {
 }
 
 // ============================================
+// Helper: Create savings badge texture
+// ============================================
+function createSavingsBadgeTexture(savingsText) {
+  const canvas = document.createElement('canvas');
+  const size = 256;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  
+  // Draw dark blue circle background
+  ctx.fillStyle = '#14214b';
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Add subtle shadow/border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  
+  // Draw savings text in white
+  ctx.fillStyle = 'white';
+  ctx.font = `bold ${size * 0.28}px "Gibson", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(savingsText, size / 2, size / 2);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// ============================================
 // Helper: Create pin component with shadow and text
 // ============================================
-function createPin(label, pinSize = 3, itemTexture = null, gsapRef = null) {
+function createPin(label, pinSize = 3, itemTexture = null, gsapRef = null, savingsText = null) {
   const normalTexture = createPinTexture(label, false);
   const doneTexture = createPinTexture(label, true);
   
@@ -393,6 +572,32 @@ function createPin(label, pinSize = 3, itemTexture = null, gsapRef = null) {
     }
   }
   
+  // Add savings badge for Instant Savings pins
+  if (savingsText) {
+    const badgeTexture = createSavingsBadgeTexture(savingsText);
+    const badgeSize = pinSize * 0.45;
+    const badgeGeometry = new THREE.PlaneGeometry(badgeSize, badgeSize);
+    const badgeMaterial = new THREE.MeshBasicMaterial({
+      map: badgeTexture,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      toneMapped: false,
+      opacity: 0,  // Start hidden
+    });
+    
+    const badgeMesh = new THREE.Mesh(badgeGeometry, badgeMaterial);
+    // Position at top-right of pin
+    badgeMesh.position.x = pinSize * 0.28;
+    badgeMesh.position.y = pinSize * 0.35;
+    badgeMesh.position.z = 0.02;
+    badgeMesh.renderOrder = 103;
+    group.add(badgeMesh);
+    group.userData.savingsBadge = badgeMesh;
+    group.userData.savingsText = savingsText;
+    group.userData.savingsBadgeVisible = false;
+  }
+  
   return group;
 }
 
@@ -405,7 +610,7 @@ function createShelfBlock(width, depth, height, color = null) {
   const geometry = new THREE.BoxGeometry(width, height, depth);
   const material = new THREE.MeshStandardMaterial({
     color: color || SHELF_COLOR,
-    roughness: 0.7,
+    roughness: 0.95,  // High roughness to show material color, less reflection
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.y = height / 2;
@@ -527,7 +732,7 @@ function createShopperMarker() {
   const group = new THREE.Group();
   group.name = 'Shopper';
   
-  const markerSize = 4.0;
+  const markerSize = 3.0;  // 0.75x of original 4.0
   
   const canvas = document.createElement('canvas');
   canvas.width = 1024;  // High resolution for crisp rendering
@@ -543,10 +748,10 @@ function createShopperMarker() {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
   ctx.fill();
   
-  // Blue gradient inner circle
+  // Blue gradient inner circle (Sam's palette)
   const gradient = ctx.createLinearGradient(cx, 10 * scale, cx, 110 * scale);
-  gradient.addColorStop(0, '#3D90EC');
-  gradient.addColorStop(1, '#235286');
+  gradient.addColorStop(0, '#5CB8E0');  // Bright blue from Sam's palette
+  gradient.addColorStop(1, '#005090');  // Navy from Sam's palette
   ctx.beginPath();
   ctx.arc(cx, cy, 50 * scale, 0, Math.PI * 2);
   ctx.fillStyle = gradient;
@@ -643,7 +848,7 @@ function createLogo(assets) {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = SAMS_BLUE_HEX;
-    ctx.font = "bold 180px 'Arial', sans-serif";  // 2x scale
+    ctx.font = "bold 180px 'Gibson', sans-serif";  // 2x scale
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText("sam's club", 760, 160);  // 2x positions
@@ -696,12 +901,12 @@ export function createStoreScene(scene, assets) {
   const shelfMap = {};
   
   // ============================================
-  // Lighting (bright to match 3D Map Style Reference)
+  // Lighting (balanced to show material colors)
   // ============================================
-  const ambientLight = new THREE.AmbientLight(0xffffff, 2.4);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 1.75);
   scene.add(ambientLight);
   
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 1.6);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
   directionalLight.position.set(15, 40, 25);
   directionalLight.castShadow = true;
   directionalLight.shadow.mapSize.width = 2048;
@@ -715,7 +920,7 @@ export function createStoreScene(scene, assets) {
   directionalLight.shadow.bias = -0.001;
   scene.add(directionalLight);
   
-  const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
   fillLight.position.set(-20, 25, -15);
   scene.add(fillLight);
   
@@ -737,7 +942,7 @@ export function createStoreScene(scene, assets) {
   // ============================================
   const wallMaterial = new THREE.MeshStandardMaterial({
     color: WALL_COLOR,
-    roughness: 0.85,
+    roughness: 0.95,  // High roughness to show material color
   });
   
   const wallThickness = 1.2;
@@ -1026,10 +1231,10 @@ export function createStoreScene(scene, assets) {
     { x: -17, z: 16 },      // Turn 1 (90°) - turn North
     
     // Turn 2: Go North (up) through B-C aisle
-    { x: -17, z: -5 },      // Turn 2 (90°) - turn West toward Dairy
+    { x: -17, z: -7 },      // Turn 2 (90°) - turn West toward Dairy
     
     // Turn 3: Go West above Dairy
-    { x: -30, z: -5 },      // Turn 3 (90°) - turn North
+    { x: -30, z: -7 },      // Turn 3 (90°) - turn North
     
     // Turn 4: Go North past Snacks (moved up 0.5)
     { x: -30, z: -16.5 },   // Turn 4 (90°) - turn East
@@ -1038,10 +1243,10 @@ export function createStoreScene(scene, assets) {
     { x: 2, z: -16.5 },     // Turn 5 (90°) - turn South
     
     // Turn 6: Go South past Kid's Clothing
-    { x: 2, z: -5 },        // Turn 6 (90°) - turn East
+    { x: 2, z: -7 },        // Turn 6 (90°) - turn East
     
     // Turn 7: Go East to Shoes/Seasonal aisle
-    { x: 19, z: -5 },       // Turn 7 (90°) - turn South
+    { x: 19, z: -7 },       // Turn 7 (90°) - turn South
     
     // End: Go South down Shoes/Seasonal aisle
     { x: 19, z: 18 },       // Stop just before Vision Center
@@ -1122,7 +1327,7 @@ export function createStoreScene(scene, assets) {
   // Pass color directly as sRGB values (shader outputs directly, no conversion)
   const ribbonMaterial = new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: new THREE.Vector3(0x00 / 255, 0x62 / 255, 0xAD / 255) },
+      uColor: { value: new THREE.Vector3(0xB8 / 255, 0xE2 / 255, 0xF8 / 255) },  // Lighter sky blue
       uProgress: { value: 0.0 },      // Erasure progress (behind marker)
       uDrawProgress: { value: 0.0 },  // Draw animation progress (0 = hidden, 1 = fully drawn)
       uOpacity: { value: 1.0 },
@@ -1172,8 +1377,8 @@ export function createStoreScene(scene, assets) {
           alpha *= smoothstep(uProgress - 0.005, uProgress + 0.015, vProgress);
         }
         
-        // Output exact sRGB color #0062AD = rgb(0, 98, 173)
-        gl_FragColor = vec4(0.0, 0.384, 0.678, alpha);
+        // Use the uColor uniform for path color
+        gl_FragColor = vec4(uColor, alpha);
       }
     `,
     transparent: true,
@@ -1191,8 +1396,8 @@ export function createStoreScene(scene, assets) {
   const shopper = createShopperMarker();
   const startPoint = pathCurve.getPoint(0);
   shopper.position.set(startPoint.x, 0, startPoint.z);
-  // Set initial rotation to face West (for Path 3 starting direction)
-  shopper.rotation.y = Math.PI / 2;
+  // Set initial rotation to 45° toward Bikes (EF) shelves (northwest)
+  shopper.rotation.y = 3 * Math.PI / 4;
   worldGroup.add(shopper);
   
   // ============================================
@@ -1257,20 +1462,28 @@ export function createStoreScene(scene, assets) {
   // Pin data: { label, x, z, y, hidden, revealAfter }
   // hidden = start hidden (scale 0), revealAfter = which pin triggers reveal
   const pinsData = [
-    { label: 'M1', x: -24, z: -19, y: AISLE_SHELF_HEIGHT + 1.5 },  // Produce section back left
-    { label: 'C4', x: -15, z: 9, y: BIN_HEIGHT + 1 },  // 8 units above A1, 1 unit right
-    { label: 'C10', x: -14, z: -1, y: AISLE_SHELF_HEIGHT + 1 },
-    { label: 'N8', x: -5, z: -19, y: AISLE_SHELF_HEIGHT + 1 },  // Electronics section
-    { label: 'F7', x: -9, z: -13.5, y: BIN_HEIGHT + 1 },
-    { label: 'G4', x: 12, z: -12, y: BIN_HEIGHT + 1 },  // Kid's Clothing area
-    { label: 'H20', x: 17, z: 9, y: AISLE_SHELF_HEIGHT + 1 },  // Above H shelf
-    { label: 'I9', x: 21, z: 3, y: AISLE_SHELF_HEIGHT + 1 },
+    { label: 'M1', x: -24, z: -14, y: AISLE_SHELF_HEIGHT + 1.5, savings: '$2 off' },  // Instant Savings
+    { label: 'C10', x: -14, z: -1, y: BIN_HEIGHT + 1, savings: '$5 off' },  // Instant Savings
+    { label: 'B4', x: -20, z: 9, y: AISLE_SHELF_HEIGHT + 1 },
+    { label: 'I18', x: 21, z: 5, y: AISLE_SHELF_HEIGHT + 1, isGift: true, hidden: true, revealOnProximity: 8 },  // Valentine's gift, 2 units south of I9
+    { label: 'N8', x: -4.5, z: -19, y: AISLE_SHELF_HEIGHT + 1, hasRedHearts: true },
+    { label: 'F7', x: -15, z: -14, y: BIN_HEIGHT + 1 },
+    { label: 'F8', x: -12, z: -14, y: BIN_HEIGHT + 1 },  // 3 units east of F7
+    { label: 'G4', x: 12, z: -10, y: BIN_HEIGHT + 1 },
+    { label: 'H20', x: 15.5, z: 9, y: AISLE_SHELF_HEIGHT + 1 },
+    { label: 'I9', x: 21, z: -1, y: AISLE_SHELF_HEIGHT + 1 },
+    { label: 'I1', x: 21, z: 12, y: AISLE_SHELF_HEIGHT + 1, isGift: true, hidden: true, revealOnProximity: 8 },  // Valentine's gift
+    { label: 'K9', x: -1.5, z: 7, y: BIN_HEIGHT + 1 },
+    { label: 'Q16', x: 7, z: 3, y: BIN_HEIGHT + 1 },
+    { label: 'G12', x: 8, z: -10, y: BIN_HEIGHT + 1 },
+    { label: 'A17', x: -30, z: -1, y: AISLE_SHELF_HEIGHT + 1 },
+    { label: 'A26', x: -30, z: 1, y: AISLE_SHELF_HEIGHT + 1 },
   ];
   
   const pinsMap = {};
-  pinsData.forEach(({ label, x, z, y, hidden, revealAfter, revealAfterDelay }) => {
+  pinsData.forEach(({ label, x, z, y, hidden, revealAfter, revealAfterDelay, isGift, revealOnProximity, savings, hasRedHearts }) => {
     const itemTexture = assets.itemTextures ? assets.itemTextures[label] : null;
-    const pin = createPin(label, 4, itemTexture, assets.gsap);
+    const pin = createPin(label, 4, itemTexture, assets.gsap, savings);
     pin.position.set(x, y, z);
     pin.userData.worldX = x;
     pin.userData.worldZ = z;
@@ -1283,6 +1496,34 @@ export function createStoreScene(scene, assets) {
     }
     if (revealAfterDelay) {
       pin.userData.revealAfterDelay = revealAfterDelay;
+    }
+    if (revealOnProximity) {
+      pin.userData.revealOnProximity = revealOnProximity;
+    }
+    // Gift pins get floating pink hearts aura (starts on proximity)
+    if (isGift) {
+      pin.userData.isGift = true;
+      const heartsAura = createFloatingHeartsAura(pin, assets.gsap, assets.pinkHeartTexture);
+      if (heartsAura) {
+        pin.userData.heartsAura = heartsAura;
+        console.log('Gift pin created:', label, 'at', x, z, '- revealOnProximity:', revealOnProximity, 'hidden:', hidden);
+      }
+    }
+    // Red hearts animation (starts immediately and loops continuously)
+    if (hasRedHearts) {
+      pin.userData.hasRedHearts = true;
+      // Much fewer hearts with longer delays
+      const redHeartsAura = createFloatingHeartsAura(pin, assets.gsap, assets.redHeartTexture, {
+        maxHearts: 2,
+        spawnIntervalMin: 2000,
+        spawnIntervalMax: 4000
+      });
+      if (redHeartsAura) {
+        pin.userData.redHeartsAura = redHeartsAura;
+        // Start immediately
+        redHeartsAura.start();
+        console.log('Red hearts animation started on:', label);
+      }
     }
     pinsGroup.add(pin);
     pinsMap[label] = pin;
@@ -1327,11 +1568,27 @@ export function createStoreScene(scene, assets) {
   scene.togglePins = (visible) => {
     if (visible) {
       pinsGroup.visible = true;
-      // Animate each pin with a spring scale (except heart which may already be showing)
+      // Animate each pin with a spring scale
       let animIndex = 0;
       pinsGroup.children.forEach((pin) => {
-        // Skip the heart pin if it's already visible and scaled
-        if (pin.userData.isHeart && pin.visible && pin.scale.x > 0.9) {
+        // Skip heart pins entirely - they are managed separately
+        if (pin.userData.isHeart) {
+          // Keep heart hidden if N8 is not hearted
+          if (!n8IsHearted) {
+            pin.visible = false;
+          }
+          return;
+        }
+        
+        // Skip N8 pin if heart is showing
+        if (n8IsHearted && pin === pinsMap['N8']) {
+          pin.visible = false;
+          return;
+        }
+        
+        // Skip pins that reveal on proximity (gift pins) - they stay hidden until marker is near
+        if (pin.userData.revealOnProximity && pin.userData.isHidden) {
+          pin.visible = true; // Make visible but keep scale at 0
           return;
         }
         
@@ -1349,11 +1606,6 @@ export function createStoreScene(scene, assets) {
           animIndex++;
         }
       });
-      
-      // Hide the original N8 pin if heart is showing
-      if (n8IsHearted && pinsMap['N8']) {
-        pinsMap['N8'].visible = false;
-      }
     } else {
       pinsGroup.visible = false;
     }
@@ -1379,9 +1631,10 @@ export function createStoreScene(scene, assets) {
         // Create heart pin at same position using loaded Heart.svg
         n8HeartPin = createHeartPin(5, assets.heartTexture);
         n8HeartPin.position.copy(n8Pin.position);
-        n8HeartPin.position.z += 1; // Move down 1 unit
-        n8HeartPin.userData.worldX = n8Pin.userData.worldX;
+        n8HeartPin.position.x += 1; // Offset to align with N8 pin center
+        n8HeartPin.userData.worldX = n8Pin.userData.worldX + 1;
         n8HeartPin.userData.worldZ = n8Pin.userData.worldZ;
+        n8HeartPin.userData.label = 'N8-heart';  // Prevent undefined label matching
         pinsGroup.add(n8HeartPin);
       }
       n8HeartPin.visible = true;
@@ -1399,7 +1652,11 @@ export function createStoreScene(scene, assets) {
       // Show regular pin, hide heart pin
       n8Pin.visible = true;
       if (n8HeartPin) {
+        if (assets.gsap) {
+          assets.gsap.killTweensOf(n8HeartPin.scale);
+        }
         n8HeartPin.visible = false;
+        n8HeartPin.scale.set(0, 0, 0);
       }
     }
     
@@ -1407,6 +1664,9 @@ export function createStoreScene(scene, assets) {
   };
   
   scene.isN8Hearted = () => n8IsHearted;
+  
+  // Get the pins map for external access
+  scene.getPinsMap = () => pinsMap;
   
   // Show just the heart pin even if pins group is hidden
   scene.showHeartOnly = () => {
@@ -1417,6 +1677,30 @@ export function createStoreScene(scene, assets) {
         if (pin !== n8HeartPin) {
           pin.visible = false;
         }
+      });
+    }
+  };
+  
+  // Bounce the N8 pin (used when swapping from heart back to pin)
+  scene.bounceN8Pin = () => {
+    const n8Pin = pinsMap['N8'];
+    
+    // Hide heart pin immediately and kill any animations on it
+    if (n8HeartPin) {
+      if (assets.gsap) {
+        assets.gsap.killTweensOf(n8HeartPin.scale);
+      }
+      n8HeartPin.visible = false;
+      n8HeartPin.scale.set(0, 0, 0); // Reset scale to ensure it's fully hidden
+    }
+    
+    if (n8Pin && assets.gsap) {
+      n8Pin.visible = true;
+      n8Pin.scale.set(0.5, 0.5, 0.5);
+      assets.gsap.to(n8Pin.scale, {
+        x: 1, y: 1, z: 1,
+        duration: 0.6,
+        ease: 'elastic.out(1, 0.4)'
       });
     }
   };

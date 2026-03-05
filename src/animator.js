@@ -27,6 +27,7 @@ let animatorState = {
   cameraOffset: new THREE.Vector3(0, 37.5, 30),
   // Pin state tracking
   pinDoneTimers: {},
+  pinPausedAt: {},
   // Compass mode: true = North-up (map fixed), false = marker always faces forward
   compassMode: true,
   currentMarkerAngle: 0,
@@ -193,7 +194,7 @@ export function updateAnimator() {
     const shopperZ = animatorState.shopper.position.z;
     
     animatorState.pinsGroup.children.forEach((pin) => {
-      if (!pin.userData || pin.userData.isDone || pin.userData.isHidden) return;
+      if (!pin.userData) return;
       
       const pinX = pin.position.x;
       const pinZ = pin.position.z;
@@ -201,8 +202,71 @@ export function updateAnimator() {
       const dz = shopperZ - pinZ;
       const distance = Math.sqrt(dx * dx + dz * dz);
       
-      // If within 7 units and not already timing
-      if (distance <= 7 && !animatorState.pinDoneTimers[pin.userData.label]) {
+      // Proximity-based reveal for gift pins
+      if (pin.userData.revealOnProximity) {
+        // Debug: log distance for gift pins occasionally
+        if (!pin.userData._lastLogTime || Date.now() - pin.userData._lastLogTime > 2000) {
+          if (pin.userData.isHidden) {
+            console.log('Gift pin', pin.userData.label, 'distance:', distance.toFixed(1), '/ threshold:', pin.userData.revealOnProximity);
+          }
+          pin.userData._lastLogTime = Date.now();
+        }
+        
+        if (pin.userData.isHidden && distance <= pin.userData.revealOnProximity) {
+          pin.userData.isHidden = false;
+          // Spring animation to reveal
+          animatorState.gsap.to(pin.scale, {
+            x: 1,
+            y: 1,
+            z: 1,
+            duration: 0.6,
+            ease: 'elastic.out(1, 0.5)'
+          });
+          console.log(pin.userData.label + ' REVEALED by proximity (' + distance.toFixed(1) + ' units)');
+          
+          // Start floating hearts animation for gift pins
+          if (pin.userData.isGift && pin.userData.heartsAura) {
+            pin.userData.heartsAura.start();
+            console.log(pin.userData.label + ' hearts aura started');
+          }
+        }
+        if (pin.userData.isHidden) return; // Skip done check while still hidden
+      }
+      
+      // Skip done processing for hidden pins
+      if (pin.userData.isDone || pin.userData.isHidden) return;
+      
+      // Show savings badge when within 6 units (Instant Savings pins)
+      if (pin.userData.savingsBadge && !pin.userData.savingsBadgeVisible && distance <= 6) {
+        pin.userData.savingsBadgeVisible = true;
+        // Pop/bounce animation - start small, overshoot, settle
+        pin.userData.savingsBadge.scale.set(0, 0, 1);
+        pin.userData.savingsBadge.material.opacity = 1;
+        animatorState.gsap.to(pin.userData.savingsBadge.scale, {
+          x: 1.3,
+          y: 1.3,
+          duration: 0.4,
+          ease: 'back.out(2)'
+        });
+        console.log(pin.userData.label + ' savings badge shown');
+      }
+      
+      // If within 4 units and not already timing
+      if (distance <= 4 && !animatorState.pinDoneTimers[pin.userData.label]) {
+        // Pause at pin for 1 second if timeline is playing and not already paused for this pin
+        if (animatorState.timeline && animatorState.isPlaying && !animatorState.pinPausedAt[pin.userData.label]) {
+          animatorState.pinPausedAt[pin.userData.label] = true;
+          animatorState.timeline.pause();
+          console.log('Pausing at pin:', pin.userData.label);
+          
+          setTimeout(() => {
+            if (animatorState.timeline) {
+              animatorState.timeline.resume();
+              console.log('Resuming from pin:', pin.userData.label);
+            }
+          }, 2000);
+        }
+        
         animatorState.pinDoneTimers[pin.userData.label] = setTimeout(() => {
           // Mark as done and swap texture
           pin.userData.isDone = true;
@@ -217,6 +281,26 @@ export function updateAnimator() {
           // Hide item image when done
           if (pin.userData.itemMesh) {
             pin.userData.itemMesh.material.opacity = 0;
+          }
+          
+          // Hide savings badge when done
+          if (pin.userData.savingsBadge) {
+            animatorState.gsap.to(pin.userData.savingsBadge.material, {
+              opacity: 0,
+              duration: 0.3,
+              ease: 'power2.in'
+            });
+            pin.userData.savingsBadgeVisible = false;
+          }
+          
+          // Stop floating hearts animation for gift pins
+          if (pin.userData.isGift && pin.userData.heartsAura) {
+            pin.userData.heartsAura.stop();
+          }
+          
+          // Stop red hearts animation when done
+          if (pin.userData.hasRedHearts && pin.userData.redHeartsAura) {
+            pin.userData.redHeartsAura.stop();
           }
           
           // Subtle bounce animation on done
@@ -234,9 +318,10 @@ export function updateAnimator() {
           console.log('Pin done:', pin.userData.label);
           
           // Check if any hidden pins should be revealed after this pin
-          if (animatorState.pinsMap) {
+          if (animatorState.pinsMap && pin.userData.label) {
             Object.values(animatorState.pinsMap).forEach((otherPin) => {
-              if (otherPin.userData.isHidden && otherPin.userData.revealAfter === pin.userData.label) {
+              // Only trigger if revealAfter is explicitly set (not undefined)
+              if (otherPin.userData.isHidden && otherPin.userData.revealAfter && otherPin.userData.revealAfter === pin.userData.label) {
                 otherPin.userData.isHidden = false;
                 // Spring animation to reveal
                 animatorState.gsap.to(otherPin.scale, {
@@ -318,15 +403,11 @@ export function playIntroTransition(onComplete) {
   introTimeline.to({}, { duration: 0.5 });
   
   // Phase 2: Smooth transition using single progress value (2.5s)
-  // Also transition from North-up to Follow mode
+  // Already in Follow mode from zenith, just transition camera angle
   introTimeline.to(anim, {
     progress: 1,
     duration: 2.5,
     ease: 'power2.inOut',
-    onStart: () => {
-      // Start transitioning to Follow mode (world will smoothly rotate)
-      animatorState.compassMode = false;
-    },
     onUpdate: () => {
       const t = anim.progress;
       
@@ -387,18 +468,35 @@ export function setCameraToZenith() {
   animatorState.followingMarker = false;
   animatorState.introComplete = false;
   
-  console.log('Camera set to zenith view');
+  // Default to Follow mode with marker angled 45° toward Bikes (EF) shelves
+  animatorState.compassMode = false;
+  const initialAngle = 3 * Math.PI / 4; // Northwest toward EF shelves
+  animatorState.currentMarkerAngle = initialAngle;
+  animatorState.worldRotation = -initialAngle + Math.PI;
+  animatorState.targetWorldRotation = animatorState.worldRotation;
+  
+  // Set marker rotation
+  if (animatorState.shopper) {
+    animatorState.shopper.rotation.y = initialAngle;
+  }
+  
+  // Apply world rotation
+  if (animatorState.worldGroup) {
+    animatorState.worldGroup.rotation.y = animatorState.worldRotation;
+  }
+  
+  console.log('Camera set to zenith view (Follow mode, 45° toward EF)');
 }
 
 /**
  * Start the full animation sequence (intro + journey)
  */
 export function startFullAnimation() {
-  // First set camera to zenith
-  setCameraToZenith();
-  
-  // Reset progress
+  // Don't reset to zenith - preserve current Follow mode rotation
+  // Just reset progress and start the transition
   animatorState.progress = 0;
+  animatorState.followingMarker = false;
+  animatorState.introComplete = false;
   
   // Play intro, then start journey
   playIntroTransition(() => {
@@ -446,11 +544,11 @@ export function playJourney() {
   const easeOutEnd = easeDuration / totalDuration; // ~0.075
   const easeInStart = 1 - (easeDuration / totalDuration); // ~0.925
   
-  // Phase 1: Ease out from start (accelerate)
+  // Phase 1: Accelerate from start (ease in - starts slow, speeds up)
   animatorState.timeline.to(animatorState, {
     progress: easeOutEnd,
     duration: easeDuration,
-    ease: 'power2.out'
+    ease: 'power2.in'
   });
   
   // Phase 2: Linear motion through middle
@@ -460,11 +558,11 @@ export function playJourney() {
     ease: 'none'
   });
   
-  // Phase 3: Ease in to end (decelerate)
+  // Phase 3: Decelerate to end (ease out - starts fast, slows down)
   animatorState.timeline.to(animatorState, {
     progress: 1,
     duration: easeDuration,
-    ease: 'power2.in'
+    ease: 'power2.out'
   });
 }
 
@@ -503,20 +601,22 @@ export function resetJourney() {
   animatorState.progress = 0;
   animatorState.introComplete = false;
   animatorState.followingMarker = false;
-  animatorState.compassMode = true; // Reset to North-up
   
-  // Reset world rotation
-  animatorState.worldRotation = 0;
-  animatorState.targetWorldRotation = 0;
-  animatorState.currentMarkerAngle = 0;
+  // Reset to Follow mode with 45° toward EF shelves
+  animatorState.compassMode = false;
+  const initialAngle = 3 * Math.PI / 4;
+  animatorState.currentMarkerAngle = initialAngle;
+  animatorState.worldRotation = -initialAngle + Math.PI;
+  animatorState.targetWorldRotation = animatorState.worldRotation;
+  
   if (animatorState.worldGroup) {
-    animatorState.worldGroup.rotation.y = 0;
+    animatorState.worldGroup.rotation.y = animatorState.worldRotation;
   }
   
   if (animatorState.pathCurve && animatorState.shopper) {
     const startPoint = animatorState.pathCurve.getPointAt(0);
     animatorState.shopper.position.set(startPoint.x, 0, startPoint.z);
-    animatorState.shopper.rotation.y = 0;
+    animatorState.shopper.rotation.y = initialAngle;
   }
   
   // Reset path visibility
@@ -535,10 +635,24 @@ export function resetJourney() {
           pinMesh.material.map = pinMesh.userData.normalTexture;
           pinMesh.material.needsUpdate = true;
         }
-        // Reset pins with revealAfter or revealAfterDelay to hidden
-        if (pin.userData.revealAfter || pin.userData.revealAfterDelay) {
+        // Reset pins with revealAfter, revealAfterDelay, or revealOnProximity to hidden
+        if (pin.userData.revealAfter || pin.userData.revealAfterDelay || pin.userData.revealOnProximity) {
           pin.scale.set(0, 0, 0);
           pin.userData.isHidden = true;
+        }
+        // Stop floating hearts animation for gift pins
+        if (pin.userData.isGift && pin.userData.heartsAura) {
+          pin.userData.heartsAura.stop();
+        }
+        // Restart red hearts animation
+        if (pin.userData.hasRedHearts && pin.userData.redHeartsAura) {
+          pin.userData.redHeartsAura.start();
+        }
+        // Reset savings badge visibility and scale
+        if (pin.userData.savingsBadge) {
+          pin.userData.savingsBadge.material.opacity = 0;
+          pin.userData.savingsBadge.scale.set(1, 1, 1);
+          pin.userData.savingsBadgeVisible = false;
         }
         // Restart item animation if available
         if (pin.userData.startItemAnimation && !pin.userData.isHidden) {
@@ -548,9 +662,10 @@ export function resetJourney() {
     });
   }
   
-  // Clear pin done timers
+  // Clear pin done timers and pause tracking
   Object.values(animatorState.pinDoneTimers).forEach(timer => clearTimeout(timer));
   animatorState.pinDoneTimers = {};
+  animatorState.pinPausedAt = {};
   
   setCameraToZenith();
   
@@ -665,11 +780,18 @@ export function switchPath(pathId, switchPathFn) {
     // Reset progress to start
     animatorState.progress = 0;
     
-    // Update shopper position to start of new path
+    // Update shopper position to start of new path with 45° toward EF
     if (animatorState.shopper) {
       const startPoint = newCurve.getPointAt(0);
+      const initialAngle = 3 * Math.PI / 4;
       animatorState.shopper.position.set(startPoint.x, 0, startPoint.z);
-      animatorState.shopper.rotation.y = 0;
+      animatorState.shopper.rotation.y = initialAngle;
+      animatorState.currentMarkerAngle = initialAngle;
+      animatorState.worldRotation = -initialAngle + Math.PI;
+      animatorState.targetWorldRotation = animatorState.worldRotation;
+      if (animatorState.worldGroup) {
+        animatorState.worldGroup.rotation.y = animatorState.worldRotation;
+      }
     }
     
     // Reset path shader progress
@@ -686,4 +808,152 @@ export function switchPath(pathId, switchPathFn) {
  */
 export function getPathCurve() {
   return animatorState.pathCurve;
+}
+
+/**
+ * Play pinch zoom animation sequence
+ * 1. Zoom in quickly 50% then 50% again to C10
+ * 2. Zoom out 50%
+ * 3. Pan toward N8 50%, then 100%
+ * 4. Zoom in 50%
+ * 5. Zoom out 50%
+ * 6. Reset to zenith
+ */
+export function playPinchZoomSequence(pinsMap) {
+  if (!animatorState.gsap || !animatorState.camera) {
+    console.warn('Cannot play pinch zoom: missing dependencies');
+    return;
+  }
+  
+  const gsap = animatorState.gsap;
+  const camera = animatorState.camera;
+  
+  // Force North-up mode for stable animation
+  animatorState.compassMode = true;
+  if (animatorState.worldGroup) {
+    animatorState.worldGroup.rotation.y = 0;
+  }
+  animatorState.worldRotation = 0;
+  animatorState.targetWorldRotation = 0;
+  
+  // Get pin positions
+  const c10Pin = pinsMap['C10'];
+  const n8Pin = pinsMap['N8'];
+  
+  if (!c10Pin || !n8Pin) {
+    console.warn('Cannot play pinch zoom: missing pins');
+    return;
+  }
+  
+  const c10Pos = { x: c10Pin.position.x, z: c10Pin.position.z };
+  const n8Pos = { x: n8Pin.position.x, z: n8Pin.position.z };
+  
+  // Store initial camera state - zoom in more aggressively
+  const initialY = 90; // Zenith height
+  const zoomInY1 = initialY * 0.35; // First zoom (closer)
+  const zoomInY2 = zoomInY1 * 0.4; // Second zoom (much closer)
+  const zoomOutY = initialY * 0.5; // Zoom out level
+  
+  // Use a lookAt target object for smooth interpolation
+  const lookTarget = { x: 0, y: 0, z: 0 };
+  
+  // Create timeline
+  const timeline = gsap.timeline({
+    onUpdate: () => {
+      // Single smooth lookAt per frame
+      camera.lookAt(lookTarget.x, lookTarget.y, lookTarget.z);
+    },
+    onComplete: () => {
+      console.log('Pinch zoom sequence complete');
+      camera.lookAt(0, 0, 0);
+    }
+  });
+  
+  // 1. Zoom in to C10 (camera + lookAt together)
+  timeline.to(camera.position, {
+    x: c10Pos.x,
+    y: zoomInY1,
+    z: c10Pos.z + 12,
+    duration: 1.0,
+    ease: 'power2.out'
+  }, 0);
+  timeline.to(lookTarget, {
+    x: c10Pos.x,
+    z: c10Pos.z,
+    duration: 1.0,
+    ease: 'power2.out'
+  }, 0);
+  
+  // 1b. Zoom in even more
+  timeline.to(camera.position, {
+    y: zoomInY2,
+    z: c10Pos.z + 5,
+    duration: 0.8,
+    ease: 'power2.out'
+  });
+  
+  // Pause on C10
+  timeline.to({}, { duration: 0.3 });
+  
+  // 2. Zoom out
+  timeline.to(camera.position, {
+    y: zoomOutY,
+    z: c10Pos.z + 12,
+    duration: 0.8,
+    ease: 'power2.in'
+  });
+  
+  // Calculate midpoint between C10 and N8
+  const midX = (c10Pos.x + n8Pos.x) / 2;
+  const midZ = (c10Pos.z + n8Pos.z) / 2;
+  
+  // 3. Pan smoothly from C10 to N8 (combined into one smooth motion)
+  timeline.to(camera.position, {
+    x: n8Pos.x,
+    z: n8Pos.z + 12,
+    duration: 1.5,
+    ease: 'power2.inOut'
+  });
+  timeline.to(lookTarget, {
+    x: n8Pos.x,
+    z: n8Pos.z,
+    duration: 1.5,
+    ease: 'power2.inOut'
+  }, "<"); // Start at same time as previous
+  
+  // 4. Zoom in close
+  timeline.to(camera.position, {
+    y: zoomInY2,
+    z: n8Pos.z + 5,
+    duration: 0.8,
+    ease: 'power2.out'
+  });
+  
+  // Pause on N8
+  timeline.to({}, { duration: 0.3 });
+  
+  // 5. Zoom out
+  timeline.to(camera.position, {
+    y: zoomOutY,
+    z: n8Pos.z + 12,
+    duration: 0.8,
+    ease: 'power2.in'
+  });
+  
+  // 6. Reset to zenith (camera + lookAt together)
+  timeline.to(camera.position, {
+    x: 0,
+    y: initialY,
+    z: 0,
+    duration: 1.2,
+    ease: 'power2.inOut'
+  });
+  timeline.to(lookTarget, {
+    x: 0,
+    z: 0,
+    duration: 1.2,
+    ease: 'power2.inOut'
+  }, "<");
+  
+  return timeline;
 }
